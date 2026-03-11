@@ -42,11 +42,24 @@ async def main():
         await orchestrator.run()
 
     elif args.command == "query":
-        # Interactive query mode or single question
-        print(f"Querying: {args.question}")
-        # To be implemented: Navigator interaction
-        print("Navigator query interface in interactive mode not fully implemented yet.")
-        print(f"Suggesting: Trace lineage for '{args.question}'")
+        from src.agents.navigator import Navigator
+        
+        repo_path = args.repo_path
+        # Re-use the same model selection logic or a default
+        llm_model = None
+        if os.getenv("GROQ_API_KEY"):
+            llm_model = "groq/llama-3.3-70b-versatile"
+        elif os.getenv("GEMINI_API_KEY") and not os.getenv("GEMINI_API_KEY").startswith("your_"):
+            llm_model = "gemini/gemini-2.0-flash"
+            
+        if not llm_model:
+            print("Error: No LLM API key provided for querying.")
+            return
+
+        print(f"Querying Navigator for: {args.question}")
+        navigator = Navigator(repo_path, model=llm_model)
+        answer = await navigator.ask(args.question)
+        print(f"\n--- NAVIGATOR ANSWER ---\n{answer}\n")
 
     else:
         parser.print_help()

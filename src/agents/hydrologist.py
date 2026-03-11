@@ -94,14 +94,18 @@ class Hydrologist:
         with open(file_path, "r") as f:
             content = f.read()
             
-            # Simple patterns for pandas read_csv, read_sql, etc.
-            read_patterns = re.findall(r"pd\.read_(csv|sql|json|parquet)\((['\"].+?['\"])\)", content)
-            write_patterns = re.findall(r"to_(csv|sql|json|parquet)\((['\"].+?['\"])\)", content)
+            # Simple patterns for pandas read_csv, read_sql, etc. (Handles both strings and variable names)
+            read_patterns = re.findall(r"pd\.read_(csv|sql|json|parquet|table)\((?:path=|filepath_or_buffer=)?(['\"].+?['\"]|[\w_]+)(?:,.*)?\)", content)
+            write_patterns = re.findall(r"\.to_(csv|sql|json|parquet)\((?:path_or_buf=)?(['\"].+?['\"]|[\w_]+)(?:,.*)?\)", content)
 
-            # PySpark read/write, rudimentary capture of paths or table names
-            spark_read = re.findall(r"spark\.read(?:\.format\([^\)]+\))?\.(csv|json|parquet|table|jdbc)\((['\"].+?['\"])\)", content)
-            spark_load = re.findall(r"spark\.read\.load\((['\"].+?['\"])\)", content)
-            spark_write = re.findall(r"\.write\.(csv|json|parquet|save|jdbc|saveAsTable)\((['\"].+?['\"])\)", content)
+            # PySpark read/write, rudimentary capture
+            spark_read = re.findall(r"spark\.read(?:\.format\([^\)]+\))?\.(csv|json|parquet|table|jdbc)\((['\"].+?['\"]|[\w_]+)\)", content)
+            spark_load = re.findall(r"spark\.read\.load\((['\"].+?['\"]|[\w_]+)\)", content)
+            spark_write = re.findall(r"\.write\.(csv|json|parquet|save|jdbc|saveAsTable)\((['\"].+?['\"]|[\w_]+)\)", content)
+
+            # Custom WarehouseLoader pattern (Specific to the target challenge)
+            # loader.load_dataframe(df, 'table_name', ...)
+            custom_loads = re.findall(r"\.load_dataframe\(.+?,\s*(['\"].+?['\"]|[\w_]+)", content)
 
             # SQLAlchemy execute calls we should also inspect
             sqlalchemy_exec = re.findall(r"(?:session\.|engine\.)execute\((?:f)?([\"'])([\s\S]*?)\1\)", content)
@@ -151,6 +155,16 @@ class Hydrologist:
                 ds_id = f"ds:{ds_name}"
                 if ds_id not in self.nodes:
                     self.nodes[ds_id] = DatasetNode(id=ds_id, name=ds_name, storage_type=StorageType.FILE)
+                    self.lineage_graph.add_node(ds_id, **self.nodes[ds_id].model_dump())
+                ensure_trans_node(content)
+                self.lineage_graph.add_edge(trans_id, ds_id)
+
+            # custom loader writes (WarehouseLoader)
+            for ds_name in custom_loads:
+                ds_name = ds_name.strip('"\'')
+                ds_id = f"ds:{ds_name}"
+                if ds_id not in self.nodes:
+                    self.nodes[ds_id] = DatasetNode(id=ds_id, name=ds_name, storage_type=StorageType.TABLE)
                     self.lineage_graph.add_node(ds_id, **self.nodes[ds_id].model_dump())
                 ensure_trans_node(content)
                 self.lineage_graph.add_edge(trans_id, ds_id)
